@@ -16,6 +16,6 @@
 
 ### What we will do
 
-- Improve the way collisions are handled. For example, we will consider how collisions occur between different materials, such as cloth and square, cloth and sphere, cloth and cloth, etc. In addition, we will explore different angles of collisions. For instance, two objects may collide vertically or at different angles.
+- Improve the way collisions are handled. For example, we will consider how collisions occur between different materials, such as cloth and square, cloth and cloth, etc. In addition, we will explore different angles of collisions. For instance, two objects may collide vertically or at different angles.
 - We may explore different ways of collision detection, while possibly learning different ways of acceleration (BVH, Uniform Grid, etc).
 - Design some cloth materials by ourselves.
