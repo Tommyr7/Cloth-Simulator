@@ -48,8 +48,8 @@ void create_vert_sizing (vector<Vert*>& verts, const map<Node*,Plane> &planes);
 
 // The algorithm
 
-void flip_edges (MeshSubset* subset, vector<Face*>& active_faces, 
-				 vector<Edge*>* update_edges, vector<Face*>* update_faces);
+void flip_edges (MeshSubset* subset, vector<Face*>& active_faces,
+                 vector<Edge*>* update_edges, vector<Face*>* update_faces);
 
 bool split_worst_edge (MeshSubset* subset, const vector<Edge*>& edges);
 
@@ -77,14 +77,14 @@ void dynamic_remesh (Mesh& mesh, const map<Node*,Plane> &planes) {
     while (split_worst_edge(0, mesh.edges));
     //cout << "post split\n"; wait_key();
     active_faces = mesh.faces;
-    while (improve_some_face(0, active_faces));    
+    while (improve_some_face(0, active_faces));
     //cout << "post collapse\n"; wait_key();
     compute_ms_data(mesh);
 }
 
 void dynamic_remesh (MeshSubset& subset, const map<Node*,Plane> &planes) {
     vector<Vert*> verts = subset.get_verts();
-	create_vert_sizing(verts, planes);
+    create_vert_sizing(verts, planes);
     vector<Face*> active_faces = subset.get_faces();
     flip_edges(&subset, active_faces, 0, 0);
     while (split_worst_edge(&subset, subset.get_edges()));
@@ -117,7 +117,7 @@ Mat2x2 compression_metric (const Face* face, const Mat3x3 &S2, const Mat3x2& UV,
     Mat2x2 e = UV.t() * G * UV;
     Mat2x2 e2 = UV.t() * G.t()*G * UV;
     Mat2x2 Sw2 = UV.t() * S2 * UV;
-    
+
     Mat2x2 D = e2- 4.0*sq(c)*perp(Sw2)*::magic.rib_stiffening;
     return get_positive(-e + sqrt(D))/(2.0*sq(c));
 }
@@ -126,63 +126,60 @@ Mat3x3 obstacle_metric (const Face *face, const map<Node*,Plane> &planes) {
     Mat3x3 o(0);
     for (int v = 0; v < 3; v++) {
         map<Node*,Plane>::const_iterator it = planes.find(face->v[v]->node);
-        if (it == planes.end()) 
-            continue;        
+        if (it == planes.end())
+            continue;
         double h[3];
         for (int v1 = 0; v1 < 3; v1++)
             h[v1] = dot(face->v[v1]->node->x - it->second.x0, it->second.n);
         Vec3 dh = derivative(h[0], h[1], h[2], 0, face);
-        
+
         o += outer(dh,dh)/sq(h[v]);
     }
     return o/3.;
 }
 
 Mat2x2 fracture_metric (Remeshing& remeshing, const Face* face) {
-	if (remeshing.refine_fracture == 0 || !sim.enabled[Simulation::Fracture])
-		return Mat2x2(0);
+    if (remeshing.refine_fracture == 0 || !sim.enabled[Simulation::Fracture])
+        return Mat2x2(0);
     double fmax = 0;
     for (int i=0; i<3; i++) {
         Face* f = adj_face(face, i);
         if (f) {
-	       Mat3x3 sig = compute_sigma(face);
-	       Vec3 l = eigen_values(sig);
-           fmax = max(l[0],fmax);
-       }
+            Mat3x3 sig = compute_sigma(face);
+            Vec3 l = eigen_values(sig);
+            fmax = max(l[0],fmax);
+        }
     }
 
-	double refine = remeshing.refine_fracture * 0.5 * face->material->toughness;
-	double ramp0 = refine * 0.5, ramp1 = refine / 0.5;
-	double v = clamp( (fmax - ramp0) / (ramp1 - ramp0), 0.0, 1.0);
-	return Mat2x2(v);
+    double refine = remeshing.refine_fracture * 0.5 * face->material->toughness;
+    double ramp0 = refine * 0.5, ramp1 = refine / 0.5;
+    double v = clamp( (fmax - ramp0) / (ramp1 - ramp0), 0.0, 1.0);
+    return Mat2x2(v);
 }
 
 Mat3x3 compute_face_sizing (Remeshing& remeshing, const Face *face, const map<Node*,Plane> &planes,
                             bool debug) {
-	// project to in-plane 2D
+    // project to in-plane 2D
     Mat3x3 base = local_base(normal<MS>(face));
     Mat3x2 UV (base.col(0),base.col(1));
     Mat2x3 UVt = UV.t();
 
-    //Mat2x2 Sp = projected_curvature<PS>(face,UVt);
     Mat2x2 Sw1 = projected_curvature<WS>(face,UVt);
     Mat3x3 Sw2 = derivative(face->v[0]->node->n, face->v[1]->node->n,
                             face->v[2]->node->n, Vec3(0), face);
-    //Mat2x2 Mcurvp = !sim.enabled[Simulation::Plasticity] ? Mat2x2(0)
-    //              : (Sp.t()*Sp)/sq(remeshing.refine_angle);
+
     Mat2x2 Mcurvw1 = (Sw1.t()*Sw1)/sq(remeshing.refine_angle);
     Mat2x2 Mcurvw2 = UVt * (Sw2.t()*Sw2) * UV / sq(remeshing.refine_angle);
     Mat3x3 V = derivative(face->v[0]->node->v, face->v[1]->node->v,
                           face->v[2]->node->v, Vec3(0), face);
     Mat2x2 Mvel = UVt * (V.t()*V) * UV / sq(remeshing.refine_velocity);
-    
+
     Mat2x2 Mcomp = compression_metric(face, Sw2.t()*Sw2, UV, remeshing.refine_compression);
     Mat2x2 Mobs = (planes.empty()) ? Mat2x2(0) : UVt*obstacle_metric(face, planes)*UV;
-    
+
     Mat2x2 Mfrac = fracture_metric(remeshing, face) / sq(remeshing.size_min);
 
     vector<Mat2x2> Ms(6);
-    //Ms[0] = Mcurvp;
     Ms[0] = Mcurvw1;
     Ms[1] = Mcurvw2;
     Ms[2] = Mvel;
@@ -191,29 +188,19 @@ Mat3x3 compute_face_sizing (Remeshing& remeshing, const Face *face, const map<No
     Ms[5] = Mfrac;
 
     Mat2x2 s = ::magic.combine_tensors ? tensor_max(Ms)
-        : Ms[0] + Ms[1] + Ms[2] + Ms[3] + Ms[4] + Ms[5] + Ms[6];
-    
+                                       : Ms[0] + Ms[1] + Ms[2] + Ms[3] + Ms[4] + Ms[5] + Ms[6];
+
     // specific resolution request ?
     for (int i=0; i<3; i++) {
-    	if (face->v[0]->node->flag & Node::FlagResolveUni)
-    		s = Mat2x2(1.f/sq(remeshing.size_uniform));
+        if (face->v[0]->node->flag & Node::FlagResolveUni)
+            s = Mat2x2(1.f/sq(remeshing.size_uniform));
         if (face->v[0]->node->flag & Node::FlagResolveMax)
             s = Mat2x2(1.f/sq(remeshing.size_min));
     }
 
-    if (debug) {
-        cout << "curvw1 " << norm_F(Mcurvw1) << endl;
-        cout << "curvw2 " << norm_F(Mcurvw2) << endl;
-        cout << "vel " << norm_F(Mvel) << endl;
-        cout << "comp " << norm_F(Mcomp) << endl;
-        cout << "obs " << norm_F(Mobs) << endl;
-        cout << "frac " << norm_F(Mfrac) << endl;
-        cout << "total " << norm_F(s) << endl;
-    }
-    
     Eig<2> eig = eigen_decomposition(s);
     for (int i = 0; i < 2; i++) {
-    	eig.l[i] = clamp(eig.l[i],
+        eig.l[i] = clamp(eig.l[i],
                          1.f/sq(remeshing.size_max),
                          1.f/sq(remeshing.size_min));
     }
@@ -223,25 +210,39 @@ Mat3x3 compute_face_sizing (Remeshing& remeshing, const Face *face, const map<No
         if (eig.l[i] < lmin)
             eig.l[i] = lmin;
     s = eig.Q*diag(eig.l)*eig.Q.t();
-    return UV * s * UVt; // reproject to 3D
+
+
+    double v_fb = 1.f, v_out = 0.2f;
+    Vec3 node_mid = (face->v[0]->node->x+face->v[1]->node->x+face->v[2]->node->x)/3;
+    double dist = norm(node_mid);
+    double M = 1000.0;
+    double viPrime = 0.f;
+    if(dist == 0)
+        viPrime = v_fb;
+    else if(dist < M)
+        viPrime = v_fb - dist/M * (v_fb-v_out);
+    else
+        viPrime = v_out;
+
+    return viPrime * UV * s * UVt; // reproject to 3D
 }
 
 void create_vert_sizing (vector<Vert*>& verts, const map<Node*,Plane> &planes) {
     Remeshing& remeshing = verts[0]->node->mesh->parent->remeshing;
     map<Face*,Mat3x3> face_sizing;
     for (size_t i=0; i<verts.size(); i++) {
-    	Mat3x3 sizing(0);
-    	Vert* vert = verts[i];
+        Mat3x3 sizing(0);
+        Vert* vert = verts[i];
         double wsum = 0;
-    	for (size_t f=0; f<vert->adjf.size(); f++) {
-    		Face *face = vert->adjf[f];
-    		if (!face) continue;
-    		if (face_sizing.find(face) == face_sizing.end())
-    			face_sizing[face] = compute_face_sizing(remeshing, face, planes);
-    		sizing += face->a * face_sizing[face];    		
+        for (size_t f=0; f<vert->adjf.size(); f++) {
+            Face *face = vert->adjf[f];
+            if (!face) continue;
+            if (face_sizing.find(face) == face_sizing.end())
+                face_sizing[face] = compute_face_sizing(remeshing, face, planes);
+            sizing += face->a * face_sizing[face];
             wsum += face->a;
-    	}
-    	vert->sizing = sizing / wsum;
+        }
+        vert->sizing = sizing / wsum;
     }
 }
 
@@ -261,8 +262,8 @@ double edge_metric (const Edge *edge) {
 vector<Edge*> find_edges_to_flip (vector<Face*>& active_faces);
 vector<Edge*> independent_edges (const vector<Edge*> &edges);
 
-bool flip_some_edges (MeshSubset* subset, vector<Face*>& active_faces, 
-					  vector<Edge*>* update_edges, vector<Face*>* update_faces) {
+bool flip_some_edges (MeshSubset* subset, vector<Face*>& active_faces,
+                      vector<Edge*>* update_edges, vector<Face*>* update_faces) {
     static int n_edges_prev = 0;
     vector<Edge*> edges = independent_edges(find_edges_to_flip(active_faces));
     if ((int)edges.size() == n_edges_prev) // probably infinite loop
@@ -273,26 +274,26 @@ bool flip_some_edges (MeshSubset* subset, vector<Face*>& active_faces,
     for (size_t e = 0; e < edges.size(); e++) {
         RemeshOp op = flip_edge(edges[e]);
         if (op.empty()) continue;
-        
+
         did_flip = true;
         if (subset)
-        	op.update(subset->active_nodes);
+            op.update(subset->active_nodes);
         if (update_edges)
-        	op.set_null(*update_edges);
+            op.set_null(*update_edges);
         if (update_faces)
-        	op.update(*update_faces);
+            op.update(*update_faces);
         op.update(active_faces);
-		op.done();
+        op.done();
     }
     return did_flip;
 }
 
-void flip_edges (MeshSubset* subset, vector<Face*>& active_faces, 
-	             vector<Edge*>* update_edges, vector<Face*>* update_faces) {
+void flip_edges (MeshSubset* subset, vector<Face*>& active_faces,
+                 vector<Edge*>* update_edges, vector<Face*>* update_faces) {
     int N = 3*active_faces.size();
     for (int i = 0; i < N; i++) {// don't loop without bound
         if (!flip_some_edges(subset, active_faces, update_edges, update_faces))
-        	return;
+            return;
     }
 }
 
@@ -302,8 +303,8 @@ bool should_flip (const Edge *edge);
 vector<Edge*> find_edges_to_flip (vector<Face*>& active_faces){
     vector<Edge*> edges;
     for (size_t i=0; i < active_faces.size(); i++)
-    	for (int j=0; j<3; j++)
-    		include(active_faces[i]->adje[j], edges);
+        for (int j=0; j<3; j++)
+            include(active_faces[i]->adje[j], edges);
 
     vector<Edge*> fedges;
     for (size_t e = 0; e < edges.size(); e++) {
@@ -336,34 +337,34 @@ vector<Edge*> independent_edges (const vector<Edge*> &edges) {
 double cross (const Vec2 &u, const Vec2 &v) {return u[0]*v[1] - u[1]*v[0];}
 
 // from Bossen and Heckbert 1996
-inline bool should_flip2 (const Vec2& x, const Vec2& y, const Vec2& z, const Vec2& w, 
+inline bool should_flip2 (const Vec2& x, const Vec2& y, const Vec2& z, const Vec2& w,
                           const Mat2x2& M) {
-    double area0 = fabs(wedge(z-y, x-y)), area1 = fabs(wedge(x-w, z-w)); 
+    double area0 = fabs(wedge(z-y, x-y)), area1 = fabs(wedge(x-w, z-w));
     return area0*dot(x-w, M*(z-w)) + dot(z-y, M*(x-y))*area1
            < -::magic.edge_flip_threshold*(area0+area1);
 }
 
 bool should_flip (const Edge *edge) {
     const double max_angle = 40.0*M_PI/180.0;
-    
+
     const Vert *vert0 = edge_vert(edge, 0, 0), *vert1 = edge_vert(edge, 0, 1),
-               *vert2 = edge_opp_vert(edge, 0), *vert3 = edge_opp_vert(edge, 1);
+            *vert2 = edge_opp_vert(edge, 0), *vert3 = edge_opp_vert(edge, 1);
     Vec3 x = vert0->u, z = vert1->u, w = vert2->u, y = vert3->u;
-    
+
     // don't flip if high angles are involved
     if (fabs(dihedral_angle<WS>(edge)) >= max_angle) return false;
-    
+
     const Vec3& n0 = normalize(cross(y-x,w-x)), n1 = normalize(cross(w-z,y-z));
     if (fabs(dihedral_angle(w,y,n0,n1)) >= max_angle) return false;
-    
+
     // don't flip if mean normal is inverted
-    if (dot(n0+n1,normal<MS>(edge->adjf[0]) + normal<MS>(edge->adjf[1])) <= 0) return false; 
-    
+    if (dot(n0+n1,normal<MS>(edge->adjf[0]) + normal<MS>(edge->adjf[1])) <= 0) return false;
+
     // project onto a 2D plane which conserves diagonal lengths 
     Vec3 u = normalize(x-z), v=normalize((w-y)-dot(w-y,u)*u);
     Mat3x2 A (u,v);
     Mat2x3 At = A.t();
-    
+
     Mat3x3 M = (vert0->sizing + vert1->sizing + vert2->sizing + vert3->sizing)/4.0;
 
     Mat2x2 Mr = At*M*A;
@@ -382,15 +383,15 @@ bool split_worst_edge (MeshSubset* subset, const vector<Edge*>& edges) {
         Edge *edge = bad_edges[e];
         if (!edge) continue;
         Node *node0 = edge->n[0], *node1 = edge->n[1];
-        RemeshOp op = split_edge(edge, 0.5);        
+        RemeshOp op = split_edge(edge, 0.5);
         for (size_t v = 0; v < op.added_verts.size(); v++) {
             Vert *vertnew = op.added_verts[v];
             Vert *v0 = adjacent_vert(node0, vertnew),
-                 *v1 = adjacent_vert(node1, vertnew);
+                    *v1 = adjacent_vert(node1, vertnew);
             vertnew->sizing = 0.5 * (v0->sizing + v1->sizing);
         }
         if (subset)
-        	op.update(subset->active_nodes);
+            op.update(subset->active_nodes);
         op.set_null(bad_edges);
         op.done();
         if (verbose)
@@ -504,13 +505,13 @@ bool can_collapse (Remeshing& remeshing, const Edge *edge, int i) {
             replace(vert0, vert1, vs);
             double a = norm(cross(vs[1]->u - vs[0]->u, vs[2]->u - vs[0]->u))/2;
             double asp = aspect(vs[0]->u, vs[1]->u, vs[2]->u);
-            
+
             if ( (a < a0 && a < 0.1*sqr(remeshing.size_min)) || asp < remeshing.aspect_min)
                 return false;
             for (int e = 0; e < 3; e++)
                 if (vs[e]!=vert1 && edge_metric(vs[NEXT(e)], vs[PREV(e)]) > 0.9) {
                     return false;
-                }    
+                }
         }
     }
     return true;

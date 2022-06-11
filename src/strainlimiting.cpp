@@ -9,13 +9,11 @@
   distributions. Contact The Office of Technology Licensing, UC
   Berkeley, 2150 Shattuck Avenue, Suite 510, Berkeley, CA 94720-1620,
   (510) 643-7201, for commercial licensing opportunities.
-
   IN NO EVENT SHALL REGENTS BE LIABLE TO ANY PARTY FOR DIRECT,
   INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING
   LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
   DOCUMENTATION, EVEN IF REGENTS HAS BEEN ADVISED OF THE POSSIBILITY
   OF SUCH DAMAGE.
-
   REGENTS SPECIFICALLY DISCLAIMS ANY WARRANTIES, INCLUDING, BUT NOT
   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
   FOR A PARTICULAR PURPOSE. THE SOFTWARE AND ACCOMPANYING
@@ -61,34 +59,51 @@ T* get(int n, const vector<Mesh*>& meshes) {
 	return 0;
 }
 
+template<class T>
+size_t get_mid(int n, const vector<Mesh*>& meshes) {
+    for (size_t m = 0, idx = 0; m<meshes.size(); m++) {
+		const vector<T*>& vec = get<T>(*meshes[m]);
+		if (n < idx + vec.size())
+			return n - idx;
+		idx += vec.size();
+	}
+	return 0;
+}
+
 struct SLOpt: public NLConOpt {
     vector<Mesh*> meshes;
-    int nn, nf;
+    int nn, nf, nm;
     const vector<StrainLimit> &strain_limits;
     const vector<Constraint*> &cons;
+    vector<Vec3> mx;
+    vector<double> mm;
     vector<Vec3> xold;
     vector<double> conold;
     mutable vector<double> s;
     mutable vector<Mat3x3> sg;
-    double inv_m;
+    double inv_m, inv_mm;
     SLOpt (vector<Mesh*> &meshes, const vector<StrainLimit> &strain_limits,
            const vector<Constraint*> &cons):
-          meshes(meshes), nn(count_elements<Node>(meshes)), nf(count_elements<Face>(meshes)),
+          meshes(meshes), nn(count_elements<Node>(meshes)), nf(count_elements<Face>(meshes)), nm(meshes.size())
           strain_limits(strain_limits), cons(cons),
-          xold(nn), s(3*nf), sg(3*nf) 
+          xold(nn), s(3*nf), sg(3*nf), mx(nm), mm(nm)
 	{
 		    inv_m = 0;
         int idx = 0;
         for (size_t m=0; m<meshes.size(); m++) {
         	Mesh* mesh = meshes[m];
+            mm[m] = 0;
         	for (size_t i=0; i<mesh->nodes.size(); i++) {
         		Node *node = mesh->nodes[i];
         		inv_m += 1.0/node->m;
         		xold[idx] = node->x;
         		node->index = idx++;
+                mm[m] += node->m;
         	}
+            inv_mm += 1.0/mm[m];
         }
        	inv_m /= nn;
+        inv_mm /= nm;
        	nvar = nn * 3;
         ncon = cons.size() + nf*6;
         conold.resize(cons.size());
@@ -141,6 +156,17 @@ void SLOpt::precompute (const double *x) const {
 }
 
 double SLOpt::objective (const double *x) const {
+#pragma omp parallel for
+    for (int m = 0; m < nm; m++) {
+        Mesh* mesh = meshes[m];
+        Vec3 v = Vec3(0);
+        for (size_t i=0; i<mesh->nodes.size(); i++) {
+            Node *node = mesh->nodes[i];
+            v += node->m * node->x;
+        }
+        mx[m] = v / mm[m];
+    }
+
     double f = 0;
 #pragma omp parallel for reduction (+: f)
     for (int n = 0; n < nn; n++) {
@@ -148,15 +174,42 @@ double SLOpt::objective (const double *x) const {
         Vec3 dx = node->x - xold[n];
         f += inv_m*node->m*norm2(dx)/2.;
     }
+
+#pragma omp parallel for reduction (+: f)
+{
+    for (int m = 0; m < nm; m++) {
+        for (int am = 0; am < nm; am++) {
+            Vec3 kx = mx[m] - mx[am];
+            f += -inv_mm * mm[m] * mm[am] * norm2(kx) / 4;
+        }
+    }
+}
     return f;
 }
 
 void SLOpt::obj_grad (const double *x, double *grad) const {
 #pragma omp parallel for
+    for (int m = 0; m < nm; m++) {
+        Mesh* mesh = meshes[m];
+        Vec3 v = Vec3(0);
+        for (size_t i=0; i<mesh->nodes.size(); i++) {
+            Node *node = mesh->nodes[i];
+            v += node->m * node->x;
+        }
+        mx[m] = v / mm[m];
+    }
+
+#pragma omp parallel for
     for (int n = 0; n < nn; n++) {
         const Node *node = get<Node>(n, meshes);
         Vec3 dx = node->x - xold[n];
-        set_subvec(grad, n, inv_m*node->m*dx);
+        Vec3 gx = inv_m * node->m * dx;
+        const int m = get_mid<Node>(n, meshes);
+        for (int am = 0; am < nm; am++) {
+            Vec3 kx = mx[m] - mx[am];
+            gx += -inv_mm * node->m * mm[am] * kx / 2;
+        }
+        set_subvec(grad, n, gx);
     }
 }
 

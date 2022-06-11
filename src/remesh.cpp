@@ -448,3 +448,4 @@ bool try_move_node (Node* node, Edge* edge, double d) {
     local_pop_filter(faces);
 	return true;
 }
+

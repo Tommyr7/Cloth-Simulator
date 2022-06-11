@@ -90,53 +90,59 @@ vector<Constraint> impact_constraints (const vector<ImpactZone*> &zones);
 ostream &operator<< (ostream &out, const Impact &imp);
 ostream &operator<< (ostream &out, const ImpactZone *zone);
 
+const int Block=10;
 void collision_response (vector<Mesh*> &meshes, const vector<Constraint*> &cons,
                          const vector<Mesh*> &obs_meshes) {
     xold.clear();
     build_node_lookup(xold, meshes);
     build_node_lookup(xold, obs_meshes);
     
-    vector<AccelStruct*> accs = create_accel_structs(meshes, true),
-                         obs_accs = create_accel_structs(obs_meshes, true);
+    vector<AccelStruct*> accs = create_accel_structs(meshes, true);
+    vector<AccelStruct*> obs_accs = create_accel_structs(obs_meshes, true);
     vector<ImpactZone*> zones;
     ::obs_mass = 1e3;
-    int iter;
-    for (int deform = 0; deform <= 1; deform++) {
-        ::deform_obstacles = deform;
-        zones.clear();
-        for (iter = 0; iter < max_iter; iter++) {
-            if (!zones.empty())
-                update_active(accs, obs_accs, zones);
-            vector<Impact> impacts = find_impacts(accs, obs_accs);
-            impacts = independent_impacts(impacts);
-            if (impacts.empty())
-                break;
-            add_impacts(impacts, zones);
-            for (int z = 0; z < (int)zones.size(); z++) {
-                ImpactZone *zone = zones[z];
-                apply_inelastic_projection(zone, cons);
-            }
-            for (int a = 0; a < (int)accs.size(); a++)
-                update_accel_struct(*accs[a]);
-            for (int a = 0; a < (int)obs_accs.size(); a++)
-                update_accel_struct(*obs_accs[a]);
-            if (deform_obstacles)
-                ::obs_mass /= 2;
-        }
-        if (iter < max_iter) // success!
-            break;
+ 	int id;
+    for (int deform=0;deform<2;deform++)
+    {
+    	::deform_obstacles=deform;
+    	zones.clear();
+    	for (id=0;id<max_iter;id++)
+    	{
+    		if (!zones.empty()) update_active(accs,obs_accs,zones);
+    		vector<Impact> impacts=find_impacts(accs,obs_accs);
+    		if (impacts.empty()) break;
+    		if (id<max_iter/2)
+    		{
+    			vector<pair<double,int> > idx;
+    			idx.clear();
+    			for (int i=0;i<(int)impacts.empty();i++)
+    				idx.push_back(make_pair(impacts[i].t,i));
+    			std::sort(idx.begin(),idx.end());
+    			int num;
+    			if (id<max_iter/4) num=std::min(Block,(int)idx.size());
+    			else num=(int)idx.size()/2;
+    			if (num==0) num=(int)idx.size();
+    			vector<Impact> tmp;
+    			tmp.clear();
+    			for (int i=0;i<num;i++)
+    				tmp.push_back(impacts[idx[i].second]);
+    			impacts=tmp;
+    		}
+    		add_impacts(impacts,zones);
+    		for (int i=0;i<(int)zones.size();i++)
+    		{
+    			ImpactZone *zone=zones[i];
+    			apply_inelastic_projection(zone,cons);
+    		}
+    		for (int i=0;i<(int)accs.size();i++)
+    			update_accel_struct(*accs[i]);
+    		for (int i=0;i<(int)obs_accs.size();i++)
+    			update_accel_struct(*obs_accs[i]);
+    		if (deform_obstacles) ::obs_mass/=2;
+    	}
+    	if (id<max_iter) break;
     }
-    if (iter == max_iter) {
-        cerr << "Collision resolution failed to converge!" << endl;
-        // vector<Impact> impacts = find_impacts(accs, obs_accs);
-        // for (size_t i = 0; i < impacts.size(); i++)
-        //     for (int n = 0; n < 4; n++)
-        //         Annotation::add(impacts[i].nodes[n]);
-        // wait_key();
-        //debug_save_meshes(meshes, "meshes");
-        //debug_save_meshes(obs_meshes, "obsmeshes");
-        //exit(1);
-    }
+    if (id==max_iter)  cerr << "Collision resolution converge failed!" << endl;
     for (int m = 0; m < (int)meshes.size(); m++) {
         compute_ws_data(*meshes[m]);
         update_x0(*meshes[m]);
